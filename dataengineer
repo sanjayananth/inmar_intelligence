@@ -1,0 +1,200 @@
+QUERY_1) Write an SQL query to return all months in the current year for which there are exactly 30 days
+
+SELECT DISTINCT sMonth FROM tblDimDate WHERE iYear = YEAR(CURRENT_DATE) GROUP BY sMonth, iYear HAVING COUNT(dateDay) = 30;
+
+ QUERY_2) tblDimDate should have one row (one date) for every date between the first date and the last date in the table. Write a SQL query to determine how many dates are missing, if any, between the first date and last date. You do not need to supply a list of the missing dates. 
+
+SELECT (DATEDIFF(MAX(dateDay), MIN(dateDay)) + 1) - COUNT(*) AS missing_dates FROM tblDimDate;
+
+QUERY_3) Write an SQL query to identify all orders scheduled to run in November 2023, for which there are not yet any records in tblAdvertiserLineItem.
+
+SELECT id AS orderID FROM tblOrder WHERE dateStart <= '2023-11-30' AND dateEnd >= '2023-11-01' AND id NOT IN (SELECT DISTINCT idOrder FROM tblAdvertiserLineItem);
+
+
+ QUERY_4) Write an SQL query to return the number of campaigns in tblOrder grouped by campaign duration. Campaign duration would be the number of days between dateStart and dateEnd.
+
+SELECT DATEDIFF(dateEnd, dateStart) + 1 AS campaign_duration_days, COUNT(*) AS campaign_count FROM tblOrder GROUP BY campaign_duration_days;
+
+
+What are the advantages and disadvantages of creating and using normalized tables? 
+
+Advantages of Normalized Tables
+•	Data Integrity and Consistency
+•	Storage Efficiency
+•	Easier Maintenance
+•	Query Optimization 
+Disadvantages of Normalized Tables
+•	Complex Queries 
+•	Slow Performance 
+
+What are the advantages and disadvantages of creating and using non-normalized tables?
+
+Advantages of Non-Normalized Tables
+•	Simpler Queries
+•	Improved Read Performance
+Disadvantages of Non-Normalized Tables
+•	Data Redundancy 
+•	Storage Inefficiency
+•	Higher Maintenance Cost
+
+
+
+Data Validation and Analysis For a project, you are working with structured (tabular) text data which is expected to conform to a specified schema. The schema defines the delimiters used to split data into fields, as well as the the name and data type of data for each field. Can you describe or write a script or pipeline which will determine if a given input file is matching the schema? If there are exceptions, the script should count the frequency of the exceptions, along with one or a few examples.
+
+from pyspark.sql import SparkSession
+from pyspark.sql.types import *
+from pyspark.sql.functions import *
+
+# Initialize Spark session
+spark = SparkSession.builder.appName("DataValidation").getOrCreate()
+
+# Define the schema with column names and data types
+schema = StructType([
+    StructField("column1", IntegerType(), True),  
+    StructField("column2", FloatType(), True),    
+    StructField("column3", StringType(), True)    
+])
+
+# Load the data 
+file_path = "data_file.txt"
+delimiter = ","  
+df = spark.read.option("delimiter", delimiter).option("header", True).csv(file_path, schema=schema)
+
+# Data Validation 
+def validate_column_type(df, column, expected_type):
+    if expected_type == IntegerType():
+        invalid_rows = df.filter(col(column).cast("int").isNull() & ~col(column).isNull())
+    elif expected_type == FloatType():
+        invalid_rows = df.filter(col(column).cast("float").isNull() & ~col(column).isNull())
+    elif expected_type == StringType():
+        invalid_rows = df.filter(~col(column).cast("string").isNotNull())
+    else:
+        raise ValueError("Unsupported data type for validation")
+    return invalid_rows
+
+# Store validation results
+validation_results = {}
+
+for field in schema.fields:
+    column_name = field.name
+    column_type = field.dataType
+    
+    # Validate each column
+    invalid_rows = validate_column_type(df, column_name, column_type)
+    
+    # If there are invalid rows, store the results
+    if invalid_rows.count() > 0:
+        validation_results[column_name] = {
+            "invalid_count": invalid_rows.count(),
+            "examples": invalid_rows.limit(5).collect()
+        }
+
+# Display validation results
+if validation_results:
+    print("Schema validation exceptions found:")
+    for column, details in validation_results.items():
+        print(f"Column '{column}' has {details['invalid_count']} invalid rows. Examples:")
+        for example in details["examples"]:
+            print(example)
+else:
+    print("Data matches the schema with no exceptions.")
+
+# Stop the Spark session
+spark.stop()
+
+QUESTION_1
+ Given a table in GBQ, how do we identify where the data is stored? 
+
+SELECT location FROM `project_id.region-us.INFORMATION_SCHEMA.TABLES` WHERE table_name = 'table_name';
+
+QUESTION_2) How can we see what partitions the table may have?
+
+SELECT partition_id, row_count, size_bytes FROM `project_id.dataset.INFORMATION_SCHEMA.PARTITIONS` WHERE table_name = 'table_name';
+
+
+
+QUERY_1) Provide a GBQ query to provide a distribution of the number of auctions and line items, grouped by the number of segments within each auction record. 
+
+SELECT ARRAY_LENGTH(arysegments) AS num_segments, COUNT(auctionid) AS auction_count, COUNT(DISTINCT idlineitem) AS lineitem_count FROM `project_id.dataset.auctions` GROUP BY num_segments ORDER BY num_segments;
+
+QUERY_2) Provide an GBQ query to provide the distinct count of auctions and line items, associated to each segment within arysegments.
+
+SELECT segment, COUNT(DISTINCT auctionid) AS distinct_auction_count, COUNT(DISTINCT idlineitem) AS distinct_lineitem_count FROM `project_id.dataset.auctions`, UNNEST(arysegments) AS segment GROUP BY segment ORDER BY segment;
+
+Linux, Bash
+You need to run a sql query for a sequence of dates (all dates from last month).
+
+#!/bin/bash
+# Define the output file
+output_file="results_last_month.csv"
+
+# Get the previous month in YYYY-MM format
+last_month=$(date -d "$(date +%Y-%m-01) -1 month" +%Y-%m)
+year=$(date -d "$(date +%Y-%m-01) -1 month" +%Y)
+month=$(date -d "$(date +%Y-%m-01) -1 month" +%m)
+
+# Calculate the number of days in the previous month
+days_in_month=$(cal $month $year | awk 'NF {DAYS = $NF}; END {print DAYS}')
+
+# Initialize or clear the output file and add headers
+echo "utc_date,num_rows" > "$output_file"
+
+# Loop through each day of the last month
+for day in $(seq -w 1 $days_in_month);  do
+ # Format date as YYYY-MM-DD
+ DATE="${last_month}-${day}"
+# Execute the SQL query and capture the result
+result=$(echo "select utc_date, sum(1) as num_rows from my_table where utc_date = '${DATE}' group by utc_date" | mysql -u user -ppassword database_name)
+ # Append result to the output file, skipping headers from SQL output
+ echo "$result" | tail -n +2 >> "$output_file"
+done
+
+echo "Results saved to $output_file."
+
+
+Python
+You need to run a hive query for a sequence of 30 dates (all dates from last month).
+
+import subprocess
+from datetime import datetime, timedelta
+import pandas as pd
+
+# Define the output file
+output_file = "results_last_month.csv"
+
+# Get today's date and calculate the first day of the previous month
+today = datetime.today()
+first_day_of_current_month = today.replace(day=1)
+first_day_of_last_month = first_day_of_current_month - timedelta(days=1)
+first_day_of_last_month = first_day_of_last_month.replace(day=1)
+
+# Generate all dates in the previous month
+dates = [(first_day_of_last_month + timedelta(days=i)).strftime("%Y-%m-%d")
+         for i in range((first_day_of_current_month - first_day_of_last_month).days)]
+
+# List to store results
+results = []
+
+# Execute the Hive query for each date and collect results
+for date in dates:
+    # Define the Hive query for each date
+    sql_query = f"select '{date}' as utc_date, sum(1) as num_rows from my_table where utc_date = '{date}' group by utc_date"
+    
+    # Execute the Hive query
+    try:
+        result = subprocess.check_output(["hive", "-e", sql_query], universal_newlines=True)
+        
+        # Parse result and add to results list
+        # Assuming the output is in the format 'utc_date\tnum_rows'
+
+      for line in result.strip().split("\n"):
+            utc_date, num_rows = line.split("\t")
+            results.append({"utc_date": utc_date, "num_rows": int(num_rows)}
+    except subprocess.CalledProcessError as e:
+        print(f"Query failed for date {date}: {e}")
+        continue
+
+# Write results to a CSV file
+df = pd.DataFrame(results)
+df.to_csv(output_file, index=False, columns=["utc_date", "num_rows"])
+print(f"Results saved to {output_file}")
